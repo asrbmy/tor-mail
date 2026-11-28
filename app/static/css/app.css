@@ -202,6 +202,8 @@ main:has(.chats) { max-width: 70rem; }
 .chip[aria-pressed=true] { background: var(--accent-soft); border-color: var(--accent); }
 .composer { position: sticky; bottom: 0; background: var(--bg); padding: .5rem 0 .75rem; border-top: 1px solid var(--line); }
 .composer-row { display: flex; gap: .5rem; align-items: flex-end; }
+.timer-select { width: auto; max-width: 9rem; min-height: 2.5rem; flex: 0 0 auto; }
+@media (max-width: 480px) { .timer-select { max-width: 6.5rem; } }
 .composer textarea { flex: 1; min-height: 44px; resize: none; max-height: 10rem; }
 .replybar { display: flex; justify-content: space-between; gap: .5rem; align-items: center; background: var(--surface); padding: .3rem .7rem; border-radius: var(--radius); margin-bottom: .4rem; font-size: .9rem; }
 .attachbar { list-style: none; padding: 0; margin: 0 0 .3rem; display: flex; flex-wrap: wrap; gap: .4rem; }

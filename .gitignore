@@ -10,3 +10,5 @@ hostname
 tor-data/
 backups/
 node_modules/
+/.update.lock
+.update.lock

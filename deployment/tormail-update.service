@@ -1,0 +1,18 @@
+[Unit]
+Description=Tor-Mail: check for a signed release and update
+After=network-online.target docker.service
+Wants=network-online.target
+# Never start while the previous run is still going; the script also takes its own lock.
+
+[Service]
+Type=oneshot
+# Adjust to where you cloned the repository. The script reads /etc/tormail/update.env (see update.env.example).
+WorkingDirectory=/opt/tor-mail
+ExecStart=/opt/tor-mail/scripts/update.sh
+# Needs the Docker socket, so this runs as root (or a user in the docker group: that is root-equivalent).
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/opt/tor-mail /var/backups/tormail
+TimeoutStartSec=30min

@@ -37,7 +37,7 @@ sudo firewall-cmd --list-all      # no tormail-related ports should appear
 
 Configure and start:
 ```bash
-git clone <your repository> tor-mail && cd tor-mail
+git clone https://github.com/asrbmy/tor-mail.git tor-mail && cd tor-mail
 cp .env.example .env
 python3 -c "import secrets; print('TORMAIL_SECRET_KEY=' + secrets.token_urlsafe(48))"  # paste into .env
 python3 -c "import secrets; print('POSTGRES_PASSWORD=' + secrets.token_hex(24))"        # paste into .env
@@ -93,6 +93,8 @@ WantedBy=timers.target
 ```
 
 ## 6. Updating securely
+
+Automatic, signature-verified updates from GitHub are described in `docs/UPDATES.md`. Doing it by hand:
 
 ```bash
 git fetch && git log --oneline HEAD..origin/main      # read what changes

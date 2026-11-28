@@ -27,7 +27,11 @@ Reviewer: the author (self-review, not independent). **No external audit has bee
 Verified by tests (SQLite and PostgreSQL for the API, real Chromium for the UI): non-member isolation on every endpoint (404, no existence oracle); CSRF and auth; stale membership versions refused; history hidden from people who join later; sender-only deletion that removes ciphertext and attachments; disappearing-message expiry and purge; attachment ownership, size and lifecycle limits; probing for usernames is rate limited; account deletion bumps membership versions; long-poll wake-up and removal notices; plaintext never reaches the database; image metadata removal on real JPEG/PNG/WebP/GIF files; axe-core WCAG audit of every chat screen in light and dark; phone layout.
 Not verified: behaviour with many members or very large histories, multi-worker deployments (wake-ups then arrive within 5 s instead of immediately), long polls through a real Tor circuit, Tor Browser's handling of `blob:` image URLs and downloads, voice or video (not implemented).
 Not implemented on purpose: typing indicators, online/last-seen status, bots, public channels, cloud-searchable history, calls. They would add metadata or need the server to read content.
-Not implemented yet: renaming a group, promoting a second admin, per-message disappearing timers, forward secrecy.
+Group rename, promotion to admin (voluntary step-down only) and per-message timers (never longer than the chat timer) are implemented and tested on the API and in the browser. Not implemented: forward secrecy (see item 8 below).
+
+## Updater review
+`scripts/update.sh` is covered by 19 tests against real git repositories and real OpenPGP signatures (fake `docker` and `age`): unsigned and wrongly signed releases, rewritten history, older release, local edits, backup required/encrypted/pruned, unhealthy release rolled back, failed rollback reported, lock, no change to the operator's own refs. Breaking each safety check on purpose made at least one test fail.
+Not verified: a real Docker host, SSH-format signatures (no `ssh-keygen` in the sandbox), real GitHub network behaviour, systemd units.
 
 ## Residual risks (accepted, stated to users)
 1. **Malicious or compromised server delivers malicious JavaScript (T9).** Inherent to webmail. Published asset hashes help only users/auditors who actually compare them. A native client or a signed browser extension would be the mitigation.

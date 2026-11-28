@@ -63,3 +63,13 @@ Docs: `docs/INSTALL.md` (install, Fedora, PostgreSQL, updates, backup, troublesh
 
 ## Chat
 Direct chats and groups with live updates (long polling over the onion service), replies, reactions, edits, delete-for-everyone, read receipts (optional), disappearing messages, and encrypted image/file attachments (metadata is removed from photos in the browser before upload). Everything readable is encrypted and signed in the browser; see `THREAT_MODEL.md` section 8 for the limits. Not included on purpose: calls, bots, public channels, typing indicators and online status.
+
+### Chat limits (read before relying on it)
+- **Groups and timers.** Admins can rename a group and make other members admins (you can only step down yourself, never demote someone else). Each message can have its own timer, shorter than the chat's timer.
+- **No forward secrecy.** Messages are encrypted to long-lived OpenPGP keys, so someone who gets your private key and a copy of the stored ciphertext can read old messages. Fixing that needs a different protocol (per-session ratcheting keys), not a setting; I did not make one up. Disappearing messages and deleting your account reduce what is stored, but do not replace it.
+- **Group membership.** The service decides who is in a group. Messages are always encrypted to the current member list, and people see a notice when the list changes. A hostile server could still add a real account, or drop messages unnoticed.
+- **Disappearing messages are best-effort.** They are deleted from the server, but they can't stop screenshots, copies, or a server that ignores the timer.
+- **Server metadata.** The service still sees who is in each chat, who sent what and when, sizes, timers and read positions. This is described on the privacy page, in `THREAT_MODEL.md` (section 8) and in `docs/SECURITY_REVIEW.md`.
+
+## Automatic updates
+`scripts/update.sh` plus the systemd timer in `deployment/` install new **signed** releases from `https://github.com/asrbmy/tor-mail` after an encrypted backup, with health check and rollback. Setup, trust model and troubleshooting: `docs/UPDATES.md`.

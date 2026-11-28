@@ -386,3 +386,57 @@ def test_long_poll_tells_a_removed_member_to_refresh_the_whole_list(app, trio):
 
     res = _run(scenario())
     assert res.json()["full"] is True and res.json()["items"] == []
+
+
+def _say_ttl(p, chat, ttl, text="x"):
+    return p.post(f"/{chat['id']}/messages", json={"ciphertext": CT.format(text), "members_version": chat["members_version"],
+                                                  "blob_ids": [], "ttl_seconds": ttl})
+
+
+def test_per_message_timer(app, trio):
+    a, b, _ = trio
+    chat = direct(a, b)
+    plain = say(a, chat, "no timer").json()
+    assert plain["expires_at"] is None
+    short = _say_ttl(a, chat, 30).json()
+    assert short["expires_at"] is not None
+    assert _say_ttl(a, chat, 7).status_code == 422                      # fixed choices only
+    assert _say_ttl(a, chat, 0).status_code == 422
+    assert a.c.put(f"/api/chats/{chat['id']}/ttl", headers=a.h, json={"ttl_seconds": 300}).status_code == 204
+    assert _say_ttl(a, chat, 3600).status_code == 422                   # cannot outlive the chat timer
+    shorter = _say_ttl(a, chat, 30).json()
+    default = say(a, chat, "default").json()
+    t = lambda m: (__import__("datetime").datetime.fromisoformat(m["expires_at"].removesuffix("Z")) - __import__("datetime").datetime.fromisoformat(m["created_at"].removesuffix("Z"))).total_seconds()
+    assert t(shorter) == 30 and t(default) == 300
+
+
+def test_rename_group_is_admin_only_and_version_checked(trio):
+    a, b, _ = trio
+    g = group(a, ["bobby"], "old")
+    new = {"meta_ciphertext": CT.format("meta-new"), "members_version": g["members_version"]}
+    put = lambda p, body: p.c.put(f"/api/chats/{g['id']}/meta", headers=p.h, json=body)
+    assert put(b, new).status_code == 403
+    assert put(a, {**new, "members_version": 99}).status_code == 409
+    assert put(a, {**new, "meta_ciphertext": "plain title"}).status_code == 422     # must be armored ciphertext
+    assert put(a, new).status_code == 204
+    assert b.get(f"/{g['id']}").json()["meta_ciphertext"] == new["meta_ciphertext"]
+    d = direct(a, trio[2])
+    assert a.c.put(f"/api/chats/{d['id']}/meta", headers=a.h, json={**new, "members_version": d["members_version"]}).status_code == 422
+
+
+def test_second_admin_and_stepping_down(trio):
+    a, b, c = trio
+    g = group(a, ["bobby", "carol"])
+    role = lambda p, who, r: p.c.put(f"/api/chats/{g['id']}/members/{who}/role", headers=p.h, json={"role": r})
+    assert role(b, "carol", "admin").status_code == 403                  # members cannot promote
+    assert role(a, "ghost", "admin").status_code == 404
+    assert role(a, "bobby", "admin").status_code == 204
+    me = lambda p: next(m for m in p.get(f"/{g['id']}").json()["members"] if m["username"] == p.name)["role"]
+    assert me(b) == "admin"
+    assert role(b, "alice", "member").status_code == 403                 # nobody can demote someone else
+    assert role(a, "alice", "member").status_code == 204                 # stepping down is allowed with another admin left
+    assert role(b, "bobby", "member").status_code == 422                 # the last admin cannot step down
+    assert b.c.post(f"/api/chats/{g['id']}/members", headers=b.h,
+                    json={"usernames": ["alice"], "members_version": g["members_version"], "meta_ciphertext": CT.format("m")}).status_code == 422   # already a member
+    assert a.c.put(f"/api/chats/{g['id']}/ttl", headers=a.h, json={"ttl_seconds": 30}).status_code == 403   # alice is a plain member now
+    assert role(b, "carol", "bogus").status_code == 422

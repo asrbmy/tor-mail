@@ -32,6 +32,7 @@ class SendIn(Strict):
     ciphertext: str = Field(max_length=200_000)
     members_version: int = Field(ge=0)
     blob_ids: list[uuid.UUID] = Field(default_factory=list, max_length=10)
+    ttl_seconds: int | None = Field(default=None, gt=0)        # timer for this message only (never longer than the chat's)
 
 
 class ReadIn(Strict):
@@ -40,6 +41,15 @@ class ReadIn(Strict):
 
 class TtlIn(Strict):
     ttl_seconds: int | None = None
+
+
+class MetaIn(Strict):
+    meta_ciphertext: str = Field(max_length=100_000)
+    members_version: int = Field(ge=0)
+
+
+class RoleIn(Strict):
+    role: str = Field(pattern="^(admin|member)$")
 
 
 class AddMembersIn(Strict):
@@ -173,7 +183,7 @@ def messages(chat_id: uuid.UUID, after_seq: int | None = Query(None, ge=0), befo
 @router.post("/{chat_id}/messages", status_code=201)
 def send(chat_id: uuid.UUID, body: SendIn, request: Request, auth: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)) -> dict:
     try:
-        item = svc.send_message(db, request.app.state.settings, auth.user, chat_id, body.ciphertext, body.members_version, body.blob_ids)
+        item = svc.send_message(db, request.app.state.settings, auth.user, chat_id, body.ciphertext, body.members_version, body.blob_ids, ttl=body.ttl_seconds)
     except svc.ChatError as e:
         raise _fail(e) from None
     _notify(request, _member_ids(db, chat_id))
@@ -224,6 +234,27 @@ def add_members(chat_id: uuid.UUID, body: AddMembersIn, request: Request, auth: 
                 db: Session = Depends(get_db)) -> Response:
     try:
         svc.add_members(db, request.app.state.settings, auth.user, chat_id, body.usernames, body.members_version, body.meta_ciphertext)
+    except svc.ChatError as e:
+        raise _fail(e) from None
+    _notify(request, _member_ids(db, chat_id))
+    return Response(status_code=204)
+
+
+@router.put("/{chat_id}/meta", status_code=204)
+def rename(chat_id: uuid.UUID, body: MetaIn, request: Request, auth: AuthContext = Depends(require_csrf), db: Session = Depends(get_db)) -> Response:
+    try:
+        svc.set_meta(db, request.app.state.settings, auth.user, chat_id, body.members_version, body.meta_ciphertext)
+    except svc.ChatError as e:
+        raise _fail(e) from None
+    _notify(request, _member_ids(db, chat_id))
+    return Response(status_code=204)
+
+
+@router.put("/{chat_id}/members/{username}/role", status_code=204)
+def change_role(chat_id: uuid.UUID, username: str, body: RoleIn, request: Request, auth: AuthContext = Depends(require_csrf),
+                db: Session = Depends(get_db)) -> Response:
+    try:
+        svc.set_role(db, auth.user, chat_id, username, body.role)
     except svc.ChatError as e:
         raise _fail(e) from None
     _notify(request, _member_ids(db, chat_id))

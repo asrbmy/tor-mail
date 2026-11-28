@@ -275,10 +275,16 @@ def get_messages(db: Session, user: User, chat_id: uuid.UUID, after_seq: int | N
 
 
 def send_message(db: Session, settings: Settings, user: User, chat_id: uuid.UUID, ciphertext: str, members_version: int,
-                 blob_ids: list[uuid.UUID], now: datetime | None = None) -> dict:
+                 blob_ids: list[uuid.UUID], now: datetime | None = None, ttl: int | None = None) -> dict:
+    """`ttl` is an optional timer for this one message. It may only be shorter than the chat's timer, never longer."""
     now = now or utcnow()
     raw = _armored(ciphertext, settings.chat_max_message_bytes)
+    if ttl is not None and ttl not in TTL_CHOICES:
+        raise Invalid("Unsupported timer")
     chat, me = _membership(db, user, chat_id, lock=True)
+    if ttl is not None and chat.ttl_seconds and ttl > chat.ttl_seconds:
+        raise Invalid("A message cannot outlive the chat's timer")
+    ttl = ttl or chat.ttl_seconds
     if chat.members_version != members_version:
         raise MembersChanged(chat.members_version)
     _limit(db, f"chatmsg:m:{user.id}", settings.chat_send_per_minute, 60, now)
@@ -291,7 +297,7 @@ def send_message(db: Session, settings: Settings, user: User, chat_id: uuid.UUID
         raise Invalid("Unknown attachment")
     chat.last_seq += 1
     msg = ChatMessage(chat_id=chat.id, seq=chat.last_seq, sender_id=user.id, ciphertext=raw, size_bytes=len(raw), created_at=now,
-                      expires_at=now + timedelta(seconds=chat.ttl_seconds) if chat.ttl_seconds else None)
+                      expires_at=now + timedelta(seconds=ttl) if ttl else None)
     db.add(msg)
     db.flush()
     for b in blobs:
@@ -374,6 +380,51 @@ def add_members(db: Session, settings: Settings, user: User, chat_id: uuid.UUID,
     chat.members_version += 1
     _touch(chat, now)
     db.commit()
+
+
+def set_meta(db: Session, settings: Settings, user: User, chat_id: uuid.UUID, members_version: int, meta_ciphertext: str,
+             now: datetime | None = None) -> None:
+    """Rename a group: admins replace the encrypted title. It must be encrypted to the current members, so a stale
+    membership version is refused (the client re-encrypts and retries)."""
+    now = now or utcnow()
+    chat, me = _membership(db, user, chat_id, lock=True)
+    if chat.kind != "group":
+        raise Invalid("Only groups have a name")
+    if me.role != "admin":
+        raise Forbidden("Only group admins can rename the group")
+    if chat.members_version != members_version:
+        raise MembersChanged(chat.members_version)
+    chat.meta_ciphertext = _armored(meta_ciphertext, settings.chat_max_message_bytes)
+    _touch(chat, now)
+    db.commit()
+
+
+def set_role(db: Session, user: User, chat_id: uuid.UUID, username: str, role: str, now: datetime | None = None) -> None:
+    """Admins can make another member an admin. Demotion is only voluntary (you step down yourself, and only when
+    another admin remains), so one admin can never lock another out."""
+    now = now or utcnow()
+    chat, me = _membership(db, user, chat_id, lock=True)
+    if chat.kind != "group":
+        raise Invalid("Only groups have admins")
+    if role not in ("admin", "member"):
+        raise Invalid("Unknown role")
+    if me.role != "admin":
+        raise Forbidden("Only group admins can change roles")
+    target_name = policy.normalize_username(username)
+    target = db.scalar(select(ChatMember).join(User, User.id == ChatMember.user_id)
+                       .where(ChatMember.chat_id == chat.id, User.username == target_name))
+    if target is None:
+        raise NotFound
+    if role == "member":
+        if target.user_id != user.id:
+            raise Forbidden("You can only step down yourself")
+        admins = db.scalar(select(func.count()).select_from(ChatMember).where(ChatMember.chat_id == chat.id, ChatMember.role == "admin"))
+        if admins < 2:
+            raise Invalid("Make someone else an admin first")
+    if target.role != role:
+        target.role = role
+        _touch(chat, now)
+        db.commit()
 
 
 def remove_member(db: Session, user: User, chat_id: uuid.UUID, username: str, members_version: int | None,

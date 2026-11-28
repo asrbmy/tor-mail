@@ -256,3 +256,44 @@ def test_chat_layout_on_a_phone(make, tmp_path, browser, server):
     small = a.page.evaluate("""() => [...document.querySelectorAll('button, a.button, a.chatrow, input:not([type=checkbox]):not(.visually-hidden), textarea')]
         .filter(e => e.offsetParent && e.getBoundingClientRect().height < 32).map(e => e.outerHTML.slice(0, 70))""")
     assert not small, small
+
+
+def test_rename_group_second_admin_and_per_message_timer(make, tmp_path):
+    a, b = (ready_user(make, tmp_path, n) for n in ("alice", "bobby"))
+    goto_link(a, "/chats")
+    a.page.click("a[href='/chats/new']")
+    a.page.fill("#nc-title", "Old name")
+    a.page.fill("#nc-members", "bobby")
+    a.page.click("form[data-role=group] button")
+    wait(a.page, "/^\\/chats\\/[0-9a-f-]{36}$/.test(location.pathname)", timeout=30000)
+    write(a, "hello group")
+    goto_link(b, "/chats")
+    wait(b.page, "[...document.querySelectorAll('.chatrow strong')].some(e => e.textContent === 'Old name')", timeout=30000)
+    b.page.click(".chatrow")
+    wait(b.page, "[...document.querySelectorAll('.bubble-text')].some(e => e.textContent === 'hello group')", timeout=30000)
+    # a plain member sees no rename form and no promotion buttons
+    b.page.click("[data-role=infobtn]")
+    wait(b.page, "document.querySelector('[data-role=members]')")
+    assert b.page.is_hidden("[data-role=renameform]") and not b.page.query_selector("button[aria-label='Make alice an admin']")
+    b.page.click("[data-role=infobtn]")
+    # alice renames the group and makes bobby an admin
+    a.page.click("[data-role=infobtn]")
+    wait(a.page, "document.querySelector('[data-role=renameform]:not([hidden])')")
+    a.page.fill("#rename-title", "New name")
+    a.page.click("form[data-role=renameform] button")
+    wait(a.page, "document.querySelector('[data-role=title]').textContent === 'New name'", timeout=30000)
+    a.page.click("button[aria-label='Make bobby an admin']")
+    wait(a.page, "!document.querySelector(\"button[aria-label='Make bobby an admin']\")", timeout=30000)
+    wait(b.page, "document.querySelector('[data-role=title]').textContent === 'New name'", timeout=40000)
+    b.page.click("[data-role=infobtn]")
+    wait(b.page, "document.querySelector('[data-role=renameform]:not([hidden])')", timeout=40000)
+    b.page.click("[data-role=infobtn]")
+    # a timer on one message only: the next message has none
+    a.page.click("[data-role=infobtn]")
+    a.page.select_option("#chat-timer", "30")
+    write(a, "this one disappears")
+    wait(a.page, "document.querySelector('.bubble.mine [data-role=expires]:not([hidden])')", timeout=30000)
+    write(a, "this one stays")
+    wait(a.page, "[...document.querySelectorAll('.bubble-text')].some(e => e.textContent === 'this one stays')", timeout=30000)
+    marks = a.page.eval_on_selector_all(".bubble.mine", "els => els.map(e => [e.querySelector('.bubble-text').textContent, !e.querySelector('[data-role=expires]').hidden])")
+    assert ["this one disappears", True] in marks and ["this one stays", True] not in marks

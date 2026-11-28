@@ -319,7 +319,7 @@
       if (kind === 'msg') { payload.files = fmeta; }
       var armored = await C.encryptObject({ signingKey: prep.id.signer, publics: prep.pubs, object: payload });
       try {
-        var item = await M.request('POST', '/api/chats/' + chatId + '/messages', { ciphertext: armored, members_version: c.members_version, blob_ids: blobIds });
+        var item = await M.request('POST', '/api/chats/' + chatId + '/messages', { ciphertext: armored, members_version: c.members_version, blob_ids: blobIds, ttl_seconds: opts.ttl || undefined });
         var s = storeFor(chatId);
         s.events[item.seq] = { seq: item.seq, sender: me(), expiresAt: item.expires_at ? Date.parse(item.expires_at) : null, createdAt: Date.parse(item.created_at),
           blobs: item.blobs || [], payload: payload, signature: 'valid', problem: null, senderVerified: true };
@@ -393,6 +393,26 @@
     await M.request('POST', '/api/chats/' + chatId + '/members', { usernames: clean, members_version: c.members_version, meta_ciphertext: meta });
     return refreshChat(chatId);
   }
+  async function rename(chatId, newTitle, opts) {
+    newTitle = String(newTitle || '').trim().slice(0, 80);
+    if (!newTitle) { throw new Error('Give the group a name.'); }
+    for (var attempt = 0; ; attempt++) {
+      var c = await refreshChat(chatId);
+      var meta = await metaFor(newTitle, c.members.map(function (m) { return m.username; }), opts);
+      try {
+        await M.request('PUT', '/api/chats/' + chatId + '/meta', { meta_ciphertext: meta, members_version: c.members_version });
+        titles[meta] = newTitle;
+        return refreshChat(chatId);
+      } catch (e) {
+        if (e && e.status === 409 && e.detail === 'members_changed' && attempt === 0) { continue; }   // someone joined meanwhile: re-encrypt
+        throw e;
+      }
+    }
+  }
+  async function setRole(chatId, username, role) {
+    await M.request('PUT', '/api/chats/' + chatId + '/members/' + encodeURIComponent(username) + '/role', { role: role });
+    return refreshChat(chatId);
+  }
   async function removeMember(chatId, username) {
     var c = await refreshChat(chatId);
     await M.request('DELETE', '/api/chats/' + chatId + '/members/' + encodeURIComponent(username) + (username === me() ? '' : '?members_version=' + c.members_version));
@@ -440,7 +460,7 @@
     prefs: prefs, setPref: setPref,
     loadLatest: loadLatest, loadOlder: loadOlder, timeline: timeline, hasMore: hasMore, deletedCount: deletedCount,
     sendText: sendText, edit: edit, react: react, removeMessage: removeMessage, markRead: markRead,
-    createDirect: createDirect, createGroup: createGroup, addMembers: addMembers, removeMember: removeMember, setTtl: setTtl, hide: hide,
+    createDirect: createDirect, createGroup: createGroup, addMembers: addMembers, removeMember: removeMember, rename: rename, setRole: setRole, setTtl: setTtl, hide: hide,
     fileURL: fileURL, cachedFile: function (blobId) { return !!files[blobId]; },
   };
 })(typeof globalThis !== 'undefined' ? globalThis : window);

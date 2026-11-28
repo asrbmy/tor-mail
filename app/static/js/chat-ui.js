@@ -110,7 +110,7 @@
       var node = clone('v-thread');
       main.appendChild(node);
       var log = role(node, 'log'), body = role(node, 'body'), form = role(node, 'composer'), ta = role(node, 'text'), sendBtn = role(node, 'send');
-      var fileInput = role(node, 'file'), older = role(node, 'older');
+      var fileInput = role(node, 'file'), older = role(node, 'older'), timerSel = role(node, 'msgtimer');
       var state = { reply: null, editing: null, files: [], picker: null, confirm: null, bubbles: {}, busy: false, infoOpen: false, lastExpiring: false };
       var timers = [];
       h.mountUnlock(role(node, 'unlock'));
@@ -131,7 +131,14 @@
         role(node, 'sub').textContent = sub;
         avatar(role(node, 'avatar'), name);
         document.title = name + ' - Tor-Mail';
+        var keep = timerSel.value, cap = c.ttl_seconds || Infinity;            // a message can only be shorter than the chat timer
+        clear(timerSel);
+        T.TTL_LABELS.forEach(function (o) {
+          if (o[0] === 0 || o[0] <= cap) { var op = el('option', '', o[0] === 0 ? (c.ttl_seconds ? 'Chat timer' : 'No timer') : 'Disappear: ' + o[1]); op.value = String(o[0]); timerSel.appendChild(op); }
+        });
+        timerSel.value = Array.prototype.some.call(timerSel.options, function (op) { return op.value === keep; }) ? keep : '0';
         var unlocked = M.state.unlocked.length > 0, alone = T.others(c).length === 0;
+        timerSel.disabled = !unlocked || alone;
         ta.disabled = !unlocked || alone; sendBtn.disabled = ta.disabled || state.busy; role(node, 'attach').disabled = ta.disabled;
         ta.placeholder = alone ? 'Nobody else is in this chat' : (unlocked ? 'Write a message' : 'Unlock your key to write');
       }
@@ -341,9 +348,9 @@
         state.busy = true; sendBtn.disabled = true; say(files.length ? 'Encrypting and uploading...' : '');
         withKeyConfirm(role(node, 'keynote'), function (accept) {
           return editing ? T.edit(id, editing.id, text, { acceptKeyChange: accept })
-            : T.sendText(id, text, { reply: reply && reply.id, files: files, acceptKeyChange: accept });
+            : T.sendText(id, text, { reply: reply && reply.id, files: files, ttl: Number(timerSel.value) || null, acceptKeyChange: accept });
         }).then(function () {
-          ta.value = ''; ta.rows = 1; state.reply = null; state.editing = null; state.files = []; renderBars(); say(''); toBottom();
+          ta.value = ''; ta.rows = 1; state.reply = null; state.editing = null; state.files = []; timerSel.value = '0'; renderBars(); say(''); toBottom();
         }).catch(fail).then(function () { state.busy = false; sendBtn.disabled = ta.disabled; if (!coarse()) { ta.focus(); } });
       });
 
@@ -364,7 +371,7 @@
         clear(info);
         var p = clone('t-info'); info.appendChild(p);
         var isGroup = c.kind === 'group', admin = c.my_role === 'admin';
-        role(p, 'memberhint').textContent = isGroup ? (admin ? 'You are an admin: you can add and remove people.' : 'Only admins can add or remove people.') : 'Compare key fingerprints with this person through another channel to be sure no one is in the middle.';
+        role(p, 'memberhint').textContent = isGroup ? (admin ? 'You are an admin: you can rename the group, add and remove people, and make others admins.' : 'Only admins can add or remove people.') : 'Compare key fingerprints with this person through another channel to be sure no one is in the middle.';
         var ul = role(p, 'members');
         c.members.forEach(function (m) {
           var li = el('li', 'member'), top = el('div', 'member-top');
@@ -386,6 +393,16 @@
             }).catch(fail);
           });
           top.appendChild(key); li.appendChild(top); li.appendChild(out);
+          if (isGroup && admin && m.role !== 'admin') {
+            var pr = el('button', 'linklike', 'Make admin'); pr.type = 'button'; pr.setAttribute('aria-label', 'Make ' + m.username + ' an admin');
+            pr.addEventListener('click', function () { T.setRole(id, m.username, 'admin').then(function () { say(m.username + ' is now an admin.'); renderInfo(); }).catch(fail); });
+            top.appendChild(pr);
+          }
+          if (isGroup && admin && m.username === M.state.username && c.members.filter(function (x) { return x.role === 'admin'; }).length > 1) {
+            var sd = el('button', 'linklike', 'Step down'); sd.type = 'button';
+            sd.addEventListener('click', function () { T.setRole(id, m.username, 'member').then(function () { say('You are no longer an admin.'); renderInfo(); update(); }).catch(fail); });
+            top.appendChild(sd);
+          }
           if (isGroup && admin && m.username !== M.state.username) {
             var rm = el('button', 'linklike danger-text', 'Remove'); rm.type = 'button'; rm.setAttribute('aria-label', 'Remove ' + m.username);
             rm.addEventListener('click', function () {
@@ -394,6 +411,13 @@
             top.appendChild(rm);
           }
           ul.appendChild(li);
+        });
+        var rf = role(p, 'renameform'); rf.hidden = !(isGroup && admin);
+        var rt = $('input', rf); rt.value = T.title(c);
+        rf.addEventListener('submit', function (ev) {
+          ev.preventDefault();
+          withKeyConfirm(role(node, 'keynote'), function (accept) { return T.rename(id, rt.value, { acceptKeyChange: accept }); })
+            .then(function () { remember(); say('Group renamed.'); update(); renderInfo(); }).catch(fail);
         });
         var add = role(p, 'addform'); add.hidden = !(isGroup && admin);
         add.addEventListener('submit', function (ev) {

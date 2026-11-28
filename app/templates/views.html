@@ -410,6 +410,8 @@
       <button type="button" class="secondary icon" data-role="attach" aria-label="Attach files">Attach</button>
       <input type="file" multiple data-role="file" class="visually-hidden" tabindex="-1" aria-hidden="true">
       <label for="chat-text" class="visually-hidden">Message</label>
+      <label for="chat-timer" class="visually-hidden">Timer for this message</label>
+      <select id="chat-timer" class="timer-select" data-role="msgtimer" title="Timer for this message"></select>
       <textarea id="chat-text" rows="1" maxlength="8000" placeholder="Write a message" autocomplete="off" data-role="text"></textarea>
       <button type="submit" data-role="send">Send</button>
     </div>
@@ -436,6 +438,12 @@
 </li></template>
 
 <template id="t-info"><div>
+  <form data-role="renameform" hidden novalidate>
+    <label for="rename-title">Group name</label>
+    <input id="rename-title" type="text" autocomplete="off" maxlength="80" required>
+    <button type="submit">Rename</button>
+    <p class="hint">The new name is encrypted for the current members.</p>
+  </form>
   <h3>Members</h3>
   <p class="hint" data-role="memberhint"></p>
   <ul class="members" data-role="members"></ul>
